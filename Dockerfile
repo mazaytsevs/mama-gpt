@@ -17,5 +17,4 @@ COPY --from=deps /usr/local/bin /usr/local/bin
 COPY app/ /app/app/
 COPY pyproject.toml requirements.txt requirements-dev.txt /app/
 USER appuser
-EXPOSE 8080
 CMD ["python", "-m", "app.main"]
