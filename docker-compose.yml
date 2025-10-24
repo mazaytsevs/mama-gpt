@@ -2,6 +2,7 @@ services:
   bot:
     build: .
     image: mama-gpt:latest
+    command: ["python", "-m", "app.main"]
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       ALLOWED_USER_IDS: ${ALLOWED_USER_IDS}
