@@ -56,8 +56,6 @@ class GigaChatClient:
 
         self._access_token: Optional[str] = None
         self._expires_at: float = 0.0
-        self._token_force_refresh_interval = max(0, int(self._settings.gigachat_token_force_refresh_interval))
-        self._next_forced_refresh: float = 0.0
         self._lock = asyncio.Lock()
 
     async def close(self) -> None:
@@ -94,12 +92,6 @@ class GigaChatClient:
 
     async def _ensure_token(self) -> None:
         async with self._lock:
-            now = time.time()
-            if self._access_token:
-                refresh_deadline = self._expires_at - self._settings.gigachat_token_refresh_reserve
-                if now < refresh_deadline:
-                    if not self._next_forced_refresh or now < self._next_forced_refresh:
-                        return
             await self._refresh_token()
 
     async def _refresh_token(self) -> None:
@@ -151,17 +143,11 @@ class GigaChatClient:
         else:
             self._expires_at = now + 600
         self._access_token = token
-        if self._token_force_refresh_interval > 0:
-            self._next_forced_refresh = now + self._token_force_refresh_interval
-        else:
-            self._next_forced_refresh = 0.0
-
     async def _handle_unauthorized(self) -> None:
         logger.warning("gigachat_unauthorized_refresh")
         async with self._lock:
             self._access_token = None
             self._expires_at = 0.0
-            self._next_forced_refresh = 0.0
             await self._refresh_token()
 
     async def _request_with_retry(
