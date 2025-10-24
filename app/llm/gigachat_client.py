@@ -56,6 +56,8 @@ class GigaChatClient:
 
         self._access_token: Optional[str] = None
         self._expires_at: float = 0.0
+        self._token_force_refresh_interval = max(0, int(self._settings.gigachat_token_force_refresh_interval))
+        self._next_forced_refresh: float = 0.0
         self._lock = asyncio.Lock()
 
     async def close(self) -> None:
@@ -93,8 +95,11 @@ class GigaChatClient:
     async def _ensure_token(self) -> None:
         async with self._lock:
             now = time.time()
-            if self._access_token and now < (self._expires_at - self._settings.gigachat_token_refresh_reserve):
-                return
+            if self._access_token:
+                refresh_deadline = self._expires_at - self._settings.gigachat_token_refresh_reserve
+                if now < refresh_deadline:
+                    if not self._next_forced_refresh or now < self._next_forced_refresh:
+                        return
             await self._refresh_token()
 
     async def _refresh_token(self) -> None:
@@ -129,22 +134,35 @@ class GigaChatClient:
         token = data.get("access_token")
         if not token:
             raise GigaChatError("Авторизация GigaChat не вернула access_token")
-        expires_at = data.get("expires_at")
-        expires_in = data.get("expires_in")
-        if expires_at:
+        now = time.time()
+        expires_at_raw = data.get("expires_at")
+        expires_in_raw = data.get("expires_in")
+        if expires_at_raw:
             try:
-                self._expires_at = float(expires_at)
+                self._expires_at = float(expires_at_raw)
             except (TypeError, ValueError) as exc:
                 logger.warning(
                     "gigachat_invalid_expires_at",
-                    extra={"value": expires_at, "error": str(exc)},
+                    extra={"value": expires_at_raw, "error": str(exc)},
                 )
-                self._expires_at = time.time() + int(expires_in or 600)
-        elif expires_in:
-            self._expires_at = time.time() + int(expires_in)
+                self._expires_at = now + int(expires_in_raw or 600)
+        elif expires_in_raw:
+            self._expires_at = now + int(expires_in_raw)
         else:
-            self._expires_at = time.time() + 600
+            self._expires_at = now + 600
         self._access_token = token
+        if self._token_force_refresh_interval > 0:
+            self._next_forced_refresh = now + self._token_force_refresh_interval
+        else:
+            self._next_forced_refresh = 0.0
+
+    async def _handle_unauthorized(self) -> None:
+        logger.warning("gigachat_unauthorized_refresh")
+        async with self._lock:
+            self._access_token = None
+            self._expires_at = 0.0
+            self._next_forced_refresh = 0.0
+            await self._refresh_token()
 
     async def _request_with_retry(
         self,
@@ -158,6 +176,20 @@ class GigaChatClient:
         for attempt, delay in enumerate(backoff, start=1):
             try:
                 response = await self._client.request(method, url, json=json, headers=headers)
+                if response.status_code == 401:
+                    last_error = httpx.HTTPStatusError(
+                        "Unauthorized",
+                        request=response.request,
+                        response=response,
+                    )
+                    logger.warning(
+                        "gigachat_request_unauthorized",
+                        extra={"attempt": attempt},
+                    )
+                    self._metrics.inc_error("gigachat")
+                    await self._handle_unauthorized()
+                    await asyncio.sleep(delay)
+                    continue
                 if response.status_code in {429, 500, 502, 503, 504}:
                     raise httpx.HTTPStatusError(
                         "Retryable GigaChat error",

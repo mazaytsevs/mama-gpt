@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     gigachat_model: str = Field(..., alias="LLM_MODEL")
     gigachat_chat_path: str = Field("/chat/completions", alias="GIGACHAT_CHAT_PATH")
     gigachat_token_refresh_reserve: int = Field(60, alias="GIGACHAT_TOKEN_REFRESH_RESERVE")
+    gigachat_token_force_refresh_interval: int = Field(300, alias="GIGACHAT_TOKEN_FORCE_REFRESH_INTERVAL")
     gigachat_scope: str = Field("GIGACHAT_API_PERS", alias="GIGACHAT_SCOPE")
     gigachat_verify_ssl: bool = Field(True, alias="GIGACHAT_VERIFY_SSL")
 
@@ -115,6 +116,13 @@ class Settings(BaseSettings):
             return BotMode(normalized)
         except ValueError as exc:
             raise ValueError("DEFAULT_MODE must be 'friendly' or 'concise'") from exc
+
+    @field_validator("gigachat_token_force_refresh_interval")
+    @classmethod
+    def validate_gigachat_token_force_refresh_interval(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("GIGACHAT_TOKEN_FORCE_REFRESH_INTERVAL must be non-negative")
+        return value
 
     @field_validator("app_mode", mode="before")
     @classmethod
