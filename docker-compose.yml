@@ -1,8 +1,16 @@
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
   bot:
     build: .
     image: mama-gpt:latest
     command: ["python", "-m", "app.main"]
+    depends_on:
+      - redis
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       ALLOWED_USER_IDS: ${ALLOWED_USER_IDS}
